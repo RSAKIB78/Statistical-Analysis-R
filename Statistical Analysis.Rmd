@@ -1,0 +1,1066 @@
+---
+title: "Statistical Analysis"
+output: html_document
+date: '2022-12-03'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, message=FALSE}
+#Loading the required packages
+library(tidyverse)
+library(dplyr)
+library(Rmisc)
+library(Hmisc)
+library(emmeans)
+library(grid)
+library(gridExtra)
+library(knitr)
+library(car)
+library(tinytex)
+options(width=100)
+```
+
+---
+
+# **Question 1**
+
+## **Tutoring Data Dictionary** 
+
+Variable | Description 
+-------- | -----------
+student_ID | The unique IDs for each student at school
+tutoring | Shows which student received tutoring (TRUE = Tutored, FALSE = Not tutored)
+absences | The proportions(%) of classes missed by each student
+score.t1 | The test score at the beginning of the academic year for each student (before implementing buddying scheme)
+score.t2 | The test score at the end of the academic year for each student (after implementing buddying scheme)
+
+## **Part 1: Analysis**
+
+### Section 1: Data Preperation
+
+```{r message=FALSE}
+#Reading the file into R
+tutoring_data <- read_csv("tutoring_test_data.txt")
+```
+
+```{r fig.align='center', out.width='100%', message=FALSE}
+#Checking the structures of data to check for necessary amending
+str(tutoring_data)
+```
+*The datatype for tutoring variable needs to be changed to factor*
+
+```{r}
+#Checking for outliers and NA values
+summary(tutoring_data)
+```
+*There seems to be some outliers and NA values present*
+
+```{r}
+#Checking for duplicate entries of student ID and filtering for unique IDs
+tutoring_data_new <- tutoring_data %>% 
+                     group_by(student_ID) %>%                                             
+                     filter(!duplicated(student_ID)) %>%
+                     ungroup(student_ID)
+
+#Checking for number of rows removed
+nrow(tutoring_data) - nrow(tutoring_data_new) #No duplicates were found for this data
+```
+
+```{r message=FALSE, warning=FALSE}
+#Checking the distribution of each variable
+grid.arrange(ggplot(tutoring_data_new, aes(absences)) + 
+             geom_histogram(binwidth = 0.5) +
+             labs(x = "Absences", y = "Count", title = "Distribution of absences"),
+
+             ggplot(tutoring_data_new, aes(score.t1)) + 
+             geom_histogram(binwidth = 0.5) +
+             labs(x = "Scores", y = "Count", title = "Distribution of scores before tutoring scheme"),
+             
+             ggplot(tutoring_data_new, aes(score.t2)) + 
+             geom_histogram(binwidth = 0.5) +
+             labs(x = "Scores", y = "Count", title = "Distribution of scores after tutoring scheme")
+)
+```
+
+*The distributions confirm the presence of some outliers in score.t2 and absences*
+
+```{r message=FALSE, warning=FALSE}
+#Preparing the data based on observation of structures and visualizations
+tutoring_data_new$tutoring <- factor(tutoring_data_new$tutoring, 
+                                     levels = c("FALSE", "TRUE"), 
+                                     labels = c("Non-Tutored", "Tutored"))  #Converting into categorical data 
+
+levels(tutoring_data_new$tutoring)  #Checking the levels of the factors
+
+
+tutoring_data_new <- tutoring_data_new %>%  
+                     filter(score.t2 <= 100 & absences < 25 & !is.na(score.t2)) %>% #Removing NA values and outliers before analysis
+                     arrange(student_ID)  #Arranging data by student ID
+
+str(tutoring_data_new) #Checking structure again to see the corrections
+summary(tutoring_data_new)
+
+#Producing summary statistics for each item
+tutoring_summary <- tutoring_data_new %>% 
+                    summarise(mean_absence = mean(absences), sd_absence = sd(absences), 
+                              mean_score.t1 = mean(score.t1), sd_score.t1 = sd(score.t1), 
+                              mean_score.t2 = mean(score.t2), sd_score.t2 = sd(score.t2))
+  #Assigning the values to individual variables
+  mean_absence <- tutoring_summary$mean_absence
+  mean_score.t1 <- tutoring_summary$mean_score.t1
+  mean_score.t2 <- tutoring_summary$mean_score.t2
+
+  sd_absence <- tutoring_summary$sd_absence
+  sd_score.t1 <- tutoring_summary$sd_score.t1
+  sd_score.t2 <- tutoring_summary$sd_score.t2
+
+#Comparing each variable to a normal distribution for each category
+grid.arrange((ggplot(tutoring_data_new, aes(x=absences)) + 
+              geom_histogram(aes(y=..density..)) + 
+              stat_function(fun=function(x) {dnorm(x, mean=mean_absence, sd=sd_absence)}) + 
+              geom_vline(xintercept = mean_absence, color = "Blue") +
+              facet_wrap(~tutoring) +
+              labs(x="Absences", y="Density", title = "Comparison for Absences data")),
+
+              (ggplot(tutoring_data_new, aes(x=score.t1)) + 
+              geom_histogram(aes(y=..density..)) + 
+              stat_function(fun=function(x) {dnorm(x, mean=mean_score.t1, sd=sd_score.t1)}) + 
+              geom_vline(xintercept = mean_score.t1, color = "Blue") +
+              facet_wrap(~tutoring) +
+              labs(x="Score Before Scheme", y="Density", title = "Comparison for Scores before Scheme")),
+
+              (ggplot(tutoring_data_new, aes(x=score.t2)) + 
+              geom_histogram(aes(y=..density..)) + 
+              stat_function(fun=function(x) {dnorm(x, mean=mean_score.t1, sd=sd_score.t2)}) +
+              geom_vline(xintercept = mean_score.t2, color = "Blue") +
+              facet_wrap(~tutoring) +
+              labs(x="Score After Scheme", y="Density", title = "Comparison for Scores after Scheme")), 
+             
+              nrow = 3) 
+```
+
+
+*The distributions seem fairly normal except the distribution for absence data seems slightly positively skewed. We proceed with our analysis*
+
+### Section 2: Checking whether the students allocated to the tutored and non-tutored groups had similar or different average test scores before the tutoring scheme began.
+
+**NHST Approach**
+```{r message=FALSE}
+#Performing t-test
+( scores.before.t.test <- t.test(score.t1 ~ tutoring, tutoring_data_new) )
+```
+
+**Estimation Approach**
+```{r fig.align='center', fig.width=10, fig.height=6, out.width='100%', message=FALSE}
+#Creating linear model
+scores.before.lm <- lm(score.t1 ~ tutoring, tutoring_data_new)
+
+#Extracting means and 95% confidence intervals
+scores.before.emm <- emmeans(scores.before.lm, ~tutoring)
+kable(scores.before.emm, caption = "Mean scores and 95% CIs ")
+
+#Estimating the differences between means
+scores.before.contrast <- confint(pairs(scores.before.emm, reverse = TRUE))
+kable(scores.before.contrast, caption = "Differences between the mean scores before the scheme")
+
+#Visualizing the estimations
+avg.scores.before <- grid.arrange(
+	             ggplot(summary(scores.before.emm), aes(y=emmean, x=tutoring, ymin=lower.CL, ymax=upper.CL, color = tutoring)) + 
+		           geom_point() + 
+		           geom_linerange() + 
+		           geom_hline(yintercept=0, lty=2) +
+		           labs(x="Students", y="Scores", color = "Tutoring",
+		                subtitle="Error bars are 95% CIs", title="Scores Before the Scheme") + 
+		           ylim(-2, 60),
+		           
+	             ggplot(scores.before.contrast, aes(y=estimate, x=contrast, ymin=lower.CL, ymax=upper.CL)) + 
+		           geom_point() + 
+		           geom_linerange() + 
+		           labs(x="Students", y="Difference in scores", 
+		                subtitle="Error bars are 95% CIs", title="Difference in Score before the Scheme") +
+		           geom_hline(yintercept=0, lty=2) +
+		           ylim(-2, 60),
+	             
+		           ncol=2, widths = c(2,1.75))
+
+```
+
+### Section 3: Checking if the tutored and non-tutored students had similar or different rates of absences on average
+
+**NHST Approach**
+```{r message=FALSE}
+#Performing t.test
+( absences.t.test <- t.test(absences ~ tutoring, tutoring_data_new) )
+```
+
+**Estimation Approach**
+```{r fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE}
+#Creating the linear model
+absences.lm <- lm(absences ~ tutoring, tutoring_data_new)
+summary(absences.lm)
+
+#Checking for interactivity
+absences.lm.scores <- lm(absences ~ tutoring + score.t1 + score.t2, tutoring_data_new)
+vif(absences.lm.scores)
+```
+The vif scores for both score.t1 and score.t2 seem similar but are over 5. Which means the additional complexity of model is warranted to be investigated
+
+```{r}
+#Creating multiple regression model including score
+absences.lm.score.t1 <- lm(absences ~ tutoring + score.t1, tutoring_data_new)
+summary(absences.lm.score.t1)
+
+#Performing anova test to check whether the additional complexity improves the model
+anova(absences.lm.scores, absences.lm.score.t1) #Inclusion of both score.t1 and score.t2 doesn't improve the model
+
+anova(absences.lm, absences.lm.score.t1) #Inclusion of score.t1 does improve the model
+```
+
+```{r fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE}
+#Extracting means and 95% confidence intervals 
+absences.emm <- emmeans(absences.lm, ~tutoring)
+kable(absences.emm, caption = "Mean absence rates and their 95% CIs by tutoring")
+
+#Estimating the difference in means and 95% confidence interval
+absences.contrast <- confint(pairs(absences.emm, reverse = TRUE))
+kable(absences.contrast, caption = "Differences in the absence rates by tutoring")
+
+#Visualizing the estimations
+grid2.1 <- grid.arrange(
+	         ggplot(summary(absences.emm), aes(x = tutoring, y = emmean, ymin = lower.CL, ymax = upper.CL, color = tutoring)) + 
+	         geom_point() + 
+	         geom_linerange() + 
+	         labs(y = "Absence Rate", x = "Students", color = "Tutoring",
+	              subtitle = "Error bars are 95% CIs", title = "Mean absence rates") +
+	         geom_hline(yintercept=0, lty=2) +
+	         ylim(-1.5, 8) + 
+	         coord_flip(),
+	         
+	         ggplot(absences.contrast, aes(y=estimate, x=contrast, ymin=lower.CL, ymax=upper.CL)) + 
+	         geom_point() + 
+	         geom_linerange() + 
+	         labs(y="Difference in Absence Rates", x="Students", 
+	              subtitle="Error bars are 95% CIs", title="Difference in absence rates") +
+	         geom_hline(yintercept=0, lty=2) + 
+	         ylim(-1.5, 8) + 
+	         coord_flip(),
+	         
+	         ncol=2)
+```
+
+```{r fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE}
+#Extracting means and 95% confidence intervals from the model including main effect of score.t1
+absences.emm.scores <- emmeans(absences.lm.score.t1, ~tutoring)
+kable(absences.emm.scores, caption = "Mean absence rates and their 95% CIs by tutoring and score main effects")
+
+#Estimating the difference in means and 95% confidence interval from the model including main effect of score.t1
+absences.contrast.scores <- confint(pairs(absences.emm.scores, reverse = TRUE))
+kable(absences.contrast.scores, caption = "Differences in the absence rates by tutoring and score main effects")
+
+grid2.2 <- grid.arrange(
+	         ggplot(summary(absences.emm.scores), aes(x = tutoring, y = emmean, ymin = lower.CL, ymax = upper.CL, color = tutoring)) + 
+	         geom_point() + 
+	         geom_linerange() + 
+	         labs(y = "Absence Rate", x = "Students", color = "Tutoring",
+	              title = "Mean absence rates along with main effect of score") + 
+	         geom_hline(yintercept=0, lty=2) +
+	         ylim(-1.5, 8) + 
+	         coord_flip(),
+	         
+	         ggplot(absences.contrast.scores, aes(y=estimate, x=contrast, ymin=lower.CL, ymax=upper.CL)) + 
+	         geom_point() + 
+	         geom_linerange() + 
+	         labs(y="Difference in Absence Rates", x="Students", 
+	              title="Difference in absence rates along with main effect of score") +
+	         geom_hline(yintercept=0, lty=2) + 
+	         ylim(-1.5, 8) + 
+	         coord_flip(),
+	         
+	         ncol=2)
+```
+
+```{r fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE}
+grid.arrange(grid2.1, grid2.2, nrow = 2, top = textGrob("Comparison between the single predictor model and the main effects model",gp=gpar(fontsize=20,font=3)))
+```
+
+### Section 4: Checking if the tutored students show an increase in their scores compared to the students who did not receive tutoring
+
+**Data Preparation**
+```{r message=FALSE}
+#Creating a new column to find score differences
+tutoring_data_new <- tutoring_data_new %>% 
+                     mutate(score.diff = (score.t2 - score.t1))
+
+#Finding the summary statistics
+summary_new <- tutoring_data_new %>% group_by(tutoring) %>% dplyr::summarise(mean_diff = mean(score.diff))
+```
+
+**NHST Approach**
+```{r message=FALSE}
+#Performing t-test
+(scores.diff.t.test <- t.test(score.diff ~ tutoring, tutoring_data_new) )
+```
+
+**Estimation Approach**
+```{r fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE}
+#Creating the linear model
+scores_diff_lm <- lm(score.diff ~ tutoring, tutoring_data_new)
+
+#Extracting the means and 95% CIs
+scores_diff_emm <- emmeans(scores_diff_lm, ~ tutoring)
+kable(scores_diff_emm, caption = "Score difference means and 95% CIs by tutoring")
+
+#Estimating the difference in means and 95% CI
+scores_diff_contrast <- confint(pairs(scores_diff_emm, reverse = TRUE))
+kable(scores_diff_contrast, caption = "Difference in the means of score changes by tutoring")
+
+#Visualizing the estimations
+grid2 <- grid.arrange(
+	       ggplot(summary(scores_diff_emm), aes(x=tutoring, y=emmean, ymin=lower.CL, ymax=upper.CL, color = tutoring)) + 
+		     geom_point() + 
+		     geom_linerange() + 
+		     labs(y="Scores", x="Students", color = "Tutoring",
+		          subtitle="Error bars are 95% CIs", title="Mean Score differences after the Scheme") +
+		     geom_hline(yintercept=0, lty=2) +
+		     ylim(-2.5, 7.5), 
+		     
+	       ggplot(scores_diff_contrast, aes(y=estimate, x=contrast, ymin=lower.CL, ymax=upper.CL)) + 
+		     geom_point() + 
+		     geom_linerange() + 
+		     labs(y="Difference in Scores", x="Students", 
+		          subtitle="Error bars are 95% CIs", title="Difference in Score changes after the Scheme") +
+		     geom_hline(yintercept=0, lty=2) + 
+		     ylim(-2.5, 7.5),
+		     
+	       ncol=2)
+```
+
+### Section 5: Checking for any effect of absences on the change in scores, and if this had any interaction with the effect of tutoring
+
+```{r message=FALSE}
+#Creating linear model with tutoring and absences main effects
+scores.diff.absences.lm <- lm(score.diff ~ tutoring + absences, tutoring_data_new)
+summary(scores.diff.absences.lm) 
+
+#Using anova to check if including absences improves the model
+anova(scores_diff_lm, scores.diff.absences.lm)
+```
+*The inclusion of main effects of tutoring and absences do not improve the model according to the anova test*
+
+```{r}
+#Creating linear model with tutoring and absences having interaction
+scores.diff.absences.lm.inter <- lm(score.diff ~ tutoring * absences, tutoring_data_new)
+summary(scores.diff.absences.lm.inter)
+
+#Using anova to check if interactivity improves the model with no interaction
+anova(scores_diff_lm, scores.diff.absences.lm.inter)
+```
+*The inclusion of interactive effect of tutoring and absences also do not improve the model according to the anova test*
+
+
+## **Part 2: Report**
+
+### Finding 1: Students allocated to the tutored and non-tutored groups didn't conclusively have similar or different average test scores before the tutoring scheme.
+
+In order to check whether the students allocated to the tutored and non-tutored groups had similar or different average test scores before the tutoring scheme began, we performed a two-sample t-test to predict their scores(score.t1) by tutoring status:
+
+```{r echo=FALSE, include=TRUE}
+scores.before.t.test
+```
+
+We conclude from our sample of 200 students that the mean score for tutored student group is **not significantly** greater than that of non-tutored student group, **Welch t(197) = 1.05, p = 0.2965.** 
+
+For getting a better estimation of average test scores before the tutoring scheme, we look at the following means and confidence intervals:
+
+```{r echo=FALSE, include=TRUE}
+kable(scores.before.emm, caption = "The mean test scores and their 95% CIs before the tutoring scheme")
+```
+
+```{r echo=FALSE, include=TRUE}
+kable(scores.before.contrast, caption = "Difference in the test scores before the tutoring scheme")
+```
+
+```{r echo=FALSE, include=TRUE, fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE, warning=FALSE}
+grid.arrange(
+                 ggplot(summary(scores.before.emm), aes(y=emmean, x=tutoring, ymin=lower.CL, ymax=upper.CL, color = tutoring)) + 
+                   geom_point() + 
+                   geom_linerange() + 
+                   labs(x="Students", y="Scores", color = "Tutoring",
+                        subtitle="Error bars are 95% CIs", title="Scores Before the Scheme") + 
+                   ylim(-2, 60),
+                   
+                 ggplot(scores.before.contrast, aes(y=estimate, x=contrast, ymin=lower.CL, ymax=upper.CL)) + 
+                   geom_point() + 
+                   geom_linerange() + 
+                   labs(x="Students", y="Difference in scores", 
+                        subtitle="Error bars are 95% CIs", title="Difference in Score before the Scheme") +
+                   geom_hline(yintercept=0, lty=2) +
+                   ylim(-2, 60),
+                 
+                   ncol=2, widths = c(2,1.75))
+```
+
+The mean score for non-tutored students is **52.9 95% CI [50.4 - 55.4]**. The mean score for tutored students is **54.8 95% CI [52.3 - 57.3]**. The difference is **$1.88$ 95% CI [-1.7 - 5.4]** greater for the tutored student group.
+
+Thus, both the p-value and the CI of difference of the scores of the two groups indicate that **we cannot say conclusively whether students allocated to the tutored and non-tutored groups had similar or different scores before the tutoring scheme began.**
+
+
+### Finding 2: Cannot conclusively say if the tutored and non-tutored students had similar or different rates of absences on average
+
+In order to check whether the tutored and non-tutored groups had similar or different rates of absences on average, we performed a two-sample t-test to predict their absences by tutoring status:
+
+```{r echo=FALSE, include=TRUE}
+absences.t.test
+```
+
+We conclude from our sample of 200 students that the mean absence rate for tutored student group is **not significantly** greater than that of non-tutored student group, **Welch t(197) = 0.98, p = 0.3257.** 
+
+For getting a better estimation of average absence rates, we look at the following means and confidence intervals:
+
+```{r echo=FALSE, include=TRUE}
+kable(absences.emm, caption = "Average absences and 95% CI based on tutoring categories")
+```
+
+```{r echo=FALSE, include=TRUE}
+kable(absences.contrast, caption = "Differences in means and 95% CI")
+```
+
+```{r echo=FALSE, include=TRUE, fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE, warning=FALSE}
+grid.arrange(
+	         ggplot(summary(absences.emm), aes(x = tutoring, y = emmean, ymin = lower.CL, ymax = upper.CL, color = tutoring)) + 
+	         geom_point() + 
+	         geom_linerange() + 
+	         labs(y = "Absence Rate", x = "Students", color = "Tutoring",
+	              subtitle = "Error bars are 95% CIs", title = "Mean absence rates") +
+	         geom_hline(yintercept=0, lty=2) +
+	         ylim(-1.5, 8) + 
+	         coord_flip(),
+	         
+	         ggplot(absences.contrast, aes(y=estimate, x=contrast, ymin=lower.CL, ymax=upper.CL)) + 
+	         geom_point() + 
+	         geom_linerange() + 
+	         labs(y="Difference in Absence Rates", x="Students", 
+	              subtitle="Error bars are 95% CIs", title="Difference in absence rates") +
+	         geom_hline(yintercept=0, lty=2) + 
+	         ylim(-1.5, 8) + 
+	         coord_flip(),
+	         
+	         ncol=2)
+```
+
+The mean absence rate for non-tutored students is **6.3 95% CI [5.6 - 6.9]**. The mean absence rate for tutored students is **6.8 95% CI [6.1 - 7.5]**. The difference is **0.48 95% CI [-0.5 - 1.4]** greater for the tutored student group.
+
+Thus, both the p-value and the CI of difference of the scores of the two groups indicate that **we cannot say conclusively whether tutored and non-tutored groups had similar or different rates of absences on average.**
+
+Further analysis showed that there is merit to include additional complexity in our model by using the main effect of either of the student scores along with the tutoring status while predicting the absence rates. However, the better model, though it changes the means and the 95% CIs, cannot also draw any different conclusion.
+
+
+### Finding 3: Tutored students do show an increase in their scores compared to the students who did not receive tutoring
+
+In order to check whether tutored students show an increase in their scores compared to the students who did not receive tutoring, we found the difference between their scores at the beginning and the end of the academic year and performed two-sample t-test and estimation process on the data:
+
+```{r echo=FALSE, include=TRUE}
+scores.diff.t.test
+```
+
+We conclude from the t-test on our sample of 200 students that the mean score difference for tutored student group is **significantly greater** than that of non-tutored student group, **Welch t(194) = 5.08, p < 0.05.**
+
+For getting a better estimation of average absence rates, we look at the following means and confidence intervals:
+
+```{r echo=FALSE, include=TRUE}
+scores_diff_emm
+```
+
+```{r echo=FALSE, include=TRUE}
+scores_diff_contrast
+```
+
+```{r echo=FALSE, include=TRUE, fig.align='center', fig.width=13, fig.height=6, out.width='100%', message=FALSE, warning=FALSE}
+grid.arrange(
+	       ggplot(summary(scores_diff_emm), aes(x=tutoring, y=emmean, ymin=lower.CL, ymax=upper.CL, color = tutoring)) + 
+		     geom_point() + 
+		     geom_linerange() + 
+		     labs(y="Scores", x="Students", color = "Tutoring",
+		          subtitle="Error bars are 95% CIs", title="Mean Score differences after the Scheme") +
+		     geom_hline(yintercept=0, lty=2) +
+		     ylim(-2.5, 7.5), 
+		     
+	       ggplot(scores_diff_contrast, aes(y=estimate, x=contrast, ymin=lower.CL, ymax=upper.CL)) + 
+		     geom_point() + 
+		     geom_linerange() + 
+		     labs(y="Difference in Scores", x="Students", 
+		          subtitle="Error bars are 95% CIs", title="Difference in Score changes after the Scheme") +
+		     geom_hline(yintercept=0, lty=2) + 
+		     ylim(-2.5, 7.5),
+		     
+	       ncol=2)
+```
+
+The mean score decrease for non-tutored students is **0.44 95% CI [-1.59 - 0.71]**. The mean score increase for tutored students is **3.77 95% CI [2.61 - 4.92]**. The difference is a score of **4.21 95% CI [2.57 - 5.84]** greater for the tutored student group.
+
+Thus, both the p-value and the CI of difference of the scores of the two groups indicate that **we can say conclusively that tutored students show an increase in their scores compared to the non-tutored students after the tutoring scheme was implemented.**
+
+
+### Finding 4: No effect of absences on the change in scores, and no interaction with the effect of tutoring
+
+In order to check for the effect of absences on the change in scores, we first check how the scores behave when either tutoring status or absence rate is held constant (i.e. not changing), then we observe for for any interaction between tutoring status and absence rate:
+
+```{r echo=FALSE, include=TRUE}
+summary(scores.diff.absences.lm)
+```
+
+Thus, the results of the regression show that there is **no significant main effect** of absence rate on scores **(tutoring = -0.11, t(197) = 0.98, p = 0.326)** but there was a **significant main effect** of tutoring on scores **(absences = 4.26, t(197) = 5.14, p < 0.0001)**
+
+```{r echo=FALSE, include=TRUE}
+anova(scores_diff_lm, scores.diff.absences.lm)
+```
+
+This is supported by the our anova test, which indicates the model is not significantly improved by the additional complexity of including the effect of absence.
+
+Now, we check for any interactivity between tutoring status and absence rate:
+
+```{r echo=FALSE, include=TRUE}
+summary(scores.diff.absences.lm.inter)
+```
+
+Thus, the results of the regression show that there is **no significant main effect** of absence rate on scores **(tutoring = -0.14, t(196) = 0.78, p = 0.4352)** but there was a **significant main effect** of tutoring on scores **(absences = 4.04, t(196) = 2.25, p = 0.0253).** There was also **no significant interaction** between tutoring status and absence, with the positive effect of absence being larger when tutoring status was 'Tutored' **(absences = 0.03, t(196) = 0.14, p = 0.8863)**
+
+```{r echo=FALSE, include=TRUE}
+anova(scores_diff_lm, scores.diff.absences.lm.inter)
+```
+
+This conclusion is also supported by the anova test, which indicates the model is not significantly improved by the additional complexity of including the interactivity effect of absence.
+
+**Thus, we can conclude by saying that there was no significant effect of absences on change in scores, neither did it have any interaction with the effect of tutoring.**
+
+---
+
+---
+
+# **Question 2a**
+
+## **Beer Data Dictionary**
+
+Variable | Description 
+-------- | -----------
+Name | The name of the beer
+Style | The style of the beer
+Brewery | The name of the manufacturer of the beer 
+ABV | Abbreviation for 'Alcohol by volume' - indicates how much of the total volume of liquid in a beer is made up of alcohol
+rating | The rating of the beer in a scale of 1-5
+minIBU | Abbreviation for 'International Bitterness Units' - indicates the minimum level of a beer's bitterness
+maxIBU | Abbreviation for 'International Bitterness Units' - indicates the maximum level of a beer's bitterness
+Astringency | Beer astringency is an off flavor and is perceived as a dry grainy, mouth-puckering, tannic sensation. 
+Body | Describes how heavy or light the beer is
+Alcohol | The alcohol content in the beer
+Bitter | The bitterness of a beer
+Sweet | The sweetness of a beer
+Sour | The sourness of a beer 
+Salty | The saltiness of a beer
+Fruits | The fruitiness of a beer
+Hoppy | The Hops content of a beer
+Spices | The Spice content of a beer
+Malty | The Malt content of a beer
+
+## **Part 1: Analysis**
+
+### Section 1: Data Preparation
+
+```{r message=FALSE}
+#Reading the file into R
+beer_data <- read_csv("Craft-Beer_data_set.txt")
+```
+
+```{r message=FALSE}
+#Checking the structure of the dataset
+str(beer_data)
+
+#Checking for any NA values
+summary(beer_data)
+
+#Removing NA values
+beer_data <- na.omit(beer_data)
+
+#Checking for duplicate data
+nrow(distinct(beer_data)) #No duplicates as the distinct entries are equal to the number of rows in the dataset
+
+#If duplicates existed, then the following code could be used to remove them:
+                                    #beer_data <- beer_data[which(beer_data == distinct(beer_data)),]
+```
+
+```{r}
+#Renaming the categories of beer according to requirement
+beer_data[grepl("IPA", beer_data$Style), "Style"] <- "IPA"
+beer_data[grepl("Lager", beer_data$Style), "Style"] <- "Lager"
+beer_data[grepl("Porter", beer_data$Style), "Style"] <- "Porter"
+beer_data[grepl("Stout", beer_data$Style), "Style"] <- "Stout"
+beer_data[grepl("Wheat", beer_data$Style), "Style"] <- "Wheat"
+beer_data[grepl("Pale", beer_data$Style), "Style"] <- "Pale"
+beer_data[grepl("Pilsner", beer_data$Style), "Style"] <- "Pilsner"
+beer_data[grepl("Bock", beer_data$Style), "Style"] <- "Bock"
+beer_data[beer_data$Style!= "IPA" & 
+          beer_data$Style != "Lager" & 
+          beer_data$Style != "Porter" & 
+          beer_data$Style != "Stout" & 
+          beer_data$Style != "Wheat" & 
+          beer_data$Style != "Pale" & 
+          beer_data$Style != "Pilsner" & 
+          beer_data$Style != "Bock" , "Style"] <- "Other"
+
+#Converting the beer category column into factor
+beer_data$Style <- as.factor(beer_data$Style)
+
+#Checking if the levels of factors are set properly
+levels(beer_data$Style)
+```
+
+```{r fig.align='center', out.width='110%', message=FALSE}
+#Generating summary statistics
+beer_data_summary <- beer_data %>% 
+                     group_by(Style) %>% 
+                     summarise(mean_rating = mean(rating), std_rating = sd(rating))
+  #Storing the summary values to individual variables
+  rating_sd <- beer_data_summary$std_rating
+  rating_mean <- beer_data_summary$mean_rating
+
+#Visualizing the distribution of rating data by beer categories and comparing to normal distribution
+ggplot(beer_data, aes(x=rating)) + 
+       geom_histogram(aes(y=..density..), binwidth = 0.05) + 
+       stat_function(fun=function(x) {dnorm(x, mean=rating_mean, sd=rating_sd)}) +
+       geom_vline(xintercept = beer_data_summary$mean_rating, color = "Green") +
+       facet_wrap(~Style) +
+       labs(x="Ratings", y="Density",
+            title = "Distribution of Ratings by Beer Categories")
+```
+The distributions seem fairly normal, except a few show slightly positive or negative skewness. Overall, the distrubutions seems fit to continue with our analysis
+
+### Section 2: Calculating the mean rating and 95% confidence intervals of the rating within each category using a linear model.
+
+**Estimation Approach**
+```{r fig.align='center', out.width='110%', message=FALSE}
+#Creating the linear model
+(beer.lm <- lm(rating ~ Style, beer_data) )
+
+#Extracting the means and 95% CIs
+beer.emm <- emmeans(beer.lm, ~ Style)
+
+#Storing the data as data frame and preparing it for reordering
+beer.emm <- as.data.frame(beer.emm)
+beer.emm <- beer.emm %>% 
+            group_by(emmean) %>% 
+            arrange(desc(emmean))
+#Creating a table to show the estimations
+(kable1 <- kable(beer.emm, caption = "Mean rating and 95% CIs within each category") )
+```
+
+### Section 3: Plot that displays, on a single axes, the distribution of the ratings within each category, the mean ratings and 95% confidence intervals
+
+```{r fig.align='center', out.width='110%', message=FALSE}
+#Visualizing the data
+ggplot(beer.emm, aes(x=reorder(Style, -emmean),  #Arranging means in descending order
+                     y=emmean, ymin=lower.CL, ymax=upper.CL, 
+                     color = Style)) +                                                          
+       geom_point() + 
+       geom_hline(aes(yintercept=rating_mean), linetype = "dotted") +
+       geom_errorbar(width = 0.3, stat = "identity") + 
+       labs(x="Category", y="Rating", color = "Category", fill = "Category",
+            subtitle="Error bars are 95% CIs", title = "Distribution of ratings for each beer category") + 
+       geom_text(aes(label = round(emmean, 2)), hjust = 1.5, size = 3, color = "Black") +  #Inserting labels on means
+       geom_violin(data=beer_data, 
+                   mapping=aes(x=Style, y=rating, ymin=NULL, ymax=NULL, color = Style, fill = Style), 
+                   alpha = 0.1) #Adding the distribution of the entire dataset
+```
+
+
+## **Part 2: Report**
+
+### Finding 1: The mean rating and 95% confidence intervals of the rating within each category using a linear model
+
+A linear model was used to predict beer rating by category. Using the model, the following mean ratings and 95% CIs were found for each category of beer:
+
+```{r echo=FALSE, include=TRUE}
+(kable1 <- kable(beer.emm, caption = "Mean rating and 95% CIs within each category") )
+```
+
+### Finding 2: A plot that displays, on a single axes, the distribution of the ratings within each category, the mean ratings and 95% confidence intervals 
+
+A violin plot is used to show the distribution of the ratings within each category and the mean ratings and 95% CIs are shown using the error bars in the following figure:
+
+```{r echo=FALSE, include=TRUE, fig.align='center', out.width='110%', message=FALSE, warning=FALSE}
+ggplot(beer.emm, aes(x=reorder(Style, -emmean),  #Arranging means in descending order
+                     y=emmean, ymin=lower.CL, ymax=upper.CL, 
+                     color = Style)) +                                                          
+       geom_point() + 
+       geom_hline(aes(yintercept=rating_mean), linetype = "dotted") +
+       geom_errorbar(width = 0.3, stat = "identity") + 
+       labs(x="Category", y="Rating", color = "Category", fill = "Category",
+            subtitle="Error bars are 95% CIs", title = "Distribution of ratings for each beer category") + 
+       geom_text(aes(label = round(emmean, 2)), hjust = 1.5, size = 3, color = "Black") +  #Inserting labels on means
+       geom_violin(data=beer_data, 
+                   mapping=aes(x=Style, y=rating, ymin=NULL, ymax=NULL, color = Style, fill = Style), 
+                   alpha = 0.1) #Adding the distribution of the entire dataset
+```
+
+---
+
+---
+
+# **Question 2b**
+
+## **Part 1: Analysis**
+
+### Section 1: Data Preparation
+
+```{r fig.align='center', out.width='110%', message=FALSE, warning=FALSE}
+#Generating the summary statistics
+beer_data_summary2 <- beer_data %>% summarise(mean_abv = mean(ABV), sd_abv = sd(ABV), 
+                                              mean_rating = mean(rating), sd_rating = sd(rating), 
+                                              mean_minIBU = mean(minIBU), sd_minIBU = sd(minIBU), 
+                                              mean_maxIBU = mean(maxIBU), sd_maxIBU = sd(maxIBU),
+                                              mean_Astringency = mean(Astringency), sd_Astrigency = sd(Astringency),
+                                              mean_Body = mean(Body), sd_Body = sd(Body),
+                                              mean_Alcohol = mean(Alcohol), sd_Alcohol = sd(Alcohol),
+                                              mean_Bitter = mean(Bitter), sd_Bitter = sd(Bitter),
+                                              mean_Sweet = mean(Sweet), sd_Sweet = sd(Sweet),
+                                              mean_Sour = mean(Sour), sd_Sour = sd(Sour),
+                                              mean_Salty = mean(Salty), sd_Salty = sd(Salty),
+                                              mean_Fruits = mean(Fruits), sd_Fruit = sd(Fruits),
+                                              mean_Hoppy = mean(Hoppy), sd_Hoppy = sd(Hoppy),
+                                              mean_Spices = mean(Spices), sd_Spices = sd(Spices),
+                                              mean_Malty = mean(Malty), sd_Malty = sd(Malty)
+                                              )
+
+#Checking the distribution of all the related variables and comparing to their normal distributions
+grid.arrange((ggplot(beer_data, aes(x=ABV)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_abv, sd=beer_data_summary2$sd_abv)}) +
+     labs(x="ABV", y="Density")) +
+     xlim(-5,30), #Not including the outliers for visualizing
+
+     (ggplot(beer_data, aes(x=rating)) + 
+     geom_histogram(aes(y=..density..), binwidth = 0.05) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_rating, sd=beer_data_summary2$sd_rating)}) + 
+     labs(x="Ratings", y="Density")),
+
+     (ggplot(beer_data, aes(x=minIBU)) + 
+     geom_histogram(aes(y=..density..), binwidth = 2) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_minIBU, sd=beer_data_summary2$sd_minIBU)}) + 
+     labs(x="minIBU", y="Density")),
+     
+     (ggplot(beer_data, aes(x=maxIBU)) + 
+     geom_histogram(aes(y=..density..), binwidth = 2) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_maxIBU, sd=beer_data_summary2$sd_maxIBU)}) + 
+     labs(x="maxIBU", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Astringency)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Astringency, sd=beer_data_summary2$sd_Astrigency)}) + 
+     labs(x="Astringency", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Body)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Body, sd=beer_data_summary2$sd_Body)}) + 
+     labs(x="Body", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Alcohol)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Alcohol, sd=beer_data_summary2$sd_Alcohol)}) + 
+     labs(x="Alcohol", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Bitter)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Bitter, sd=beer_data_summary2$sd_Bitter)}) + 
+     labs(x="Bitter", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Sweet)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Sweet, sd=beer_data_summary2$sd_Sweet)}) + 
+     labs(x="Sweet", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Sour)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Sour, sd=beer_data_summary2$sd_Sour)}) + 
+     labs(x="Sour", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Salty)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Salty, sd=beer_data_summary2$sd_Salty)}) + 
+     labs(x="Salty", y="Density")) +
+     xlim(-5, 20),
+     
+     (ggplot(beer_data, aes(x=Fruits)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Fruits, sd=beer_data_summary2$sd_Fruit)}) + 
+     labs(x="Fruits", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Hoppy)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Hoppy, sd=beer_data_summary2$sd_Hoppy)}) + 
+     labs(x="Hoppy", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Spices)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Spices, sd=beer_data_summary2$sd_Spices)}) + 
+     labs(x="Spices", y="Density")),
+     
+     (ggplot(beer_data, aes(x=Malty)) + 
+     geom_histogram(aes(y=..density..), binwidth = 1) + 
+     stat_function(fun=function(x) {dnorm(x, mean=beer_data_summary2$mean_Malty, sd=beer_data_summary2$sd_Malty)}) + 
+     labs(x="Malty", y="Density")),
+     
+     top = textGrob("Distributions of each variable",gp=gpar(fontsize=15,font=3)))
+```
+We are more interested in the distributions of ratings, ABV, Sweet and Malty. Ratings and ABV seem fairly normal, however, Sweet and Malty have a lot of positive skewness. We will keep this in mind while performing the analysis.
+
+```{r fig.align='center', out.width='110%', message=FALSE}
+#Checking correlation for relevant variables
+rcorr(as.matrix(select(beer_data, rating, ABV, Sweet, Malty), type = "pearson"))
+
+#Visualizing the correlations
+grid.arrange(ggplot(beer_data, aes(x = ABV, y = rating)) + 
+             geom_point() + 
+             geom_smooth(method = lm) +
+             labs(y = "Rating"),
+             
+             ggplot(beer_data, aes(x = Sweet, y = rating)) + 
+             geom_point() + 
+             geom_smooth(method = lm) +
+             labs(y = "Rating"),
+             
+             ggplot(beer_data, aes(x = Malty, y = rating)) + 
+             geom_point() + 
+             geom_smooth(method = lm) +
+             labs(y = "Rating"),
+             
+             ggplot(beer_data, aes(x = Sweet, y = Malty)) + 
+             geom_point() + 
+             geom_smooth(method = lm),
+             
+             ggplot(beer_data, aes(x = ABV, y = Malty)) + 
+             geom_point() + 
+             geom_smooth(method = lm),
+             
+             ggplot(beer_data, aes(x = ABV, y = Sweet)) + 
+             geom_point() + 
+             geom_smooth(method = lm),
+             
+             top = textGrob("Visualizing correlations",gp=gpar(fontsize=20,font=3))
+)
+```
+
+### Section 2: Checking whether, on average, a beer receives a higher rating if it has a higher or lower ABV.
+
+**NHST Approach**
+```{r message=FALSE}
+#Creating the linear model with ABV as predictor
+abv_lm <- lm(rating ~ ABV, beer_data)
+summary(abv_lm)
+
+#Creating another linear model with no predictor
+abv_base <- lm(rating ~ 1, beer_data)
+
+#Checking whether the model is improved by the use of ABV as predictor
+anova(abv_base, abv_lm)
+```
+Comparison with the baseline linear model and the linear model with predictor in anova test shows that the additional complexity of including ABV makes our model significantly better.
+
+
+**Estimation Approach**
+```{r fig.align='center', out.width='110%', message=FALSE}
+#Extracting the coefficient and 95% CIs from the linear model
+abv_est <- cbind(coef(abv_lm), confint(abv_lm))
+
+#Using the linear model to generate rating predictions based on existing ABV data
+beer_data <- beer_data %>% mutate(rating.hat = predict(abv_lm))
+
+#Visualizing the residuals
+ggplot(beer_data, aes(x = ABV, y = rating, ymin = rating, ymax = rating.hat)) + 
+  geom_point() + 
+  geom_linerange() + 
+  geom_smooth(method = lm) + 
+  geom_point(aes(y = rating.hat), shape = "x", size = 3) +
+  labs(y = "Ratings")
+```
+
+### Section 3: Checking if having more or less Sweet or Malty elements in the flavour results in higher or lower ratings
+
+**Sweet Flavor**
+```{r fig.align='center',message=FALSE}
+#Creating linear model for Sweet flavor:
+flavor_lm.s <- lm(rating ~ ABV + Sweet, beer_data)
+summary(flavor_lm.s)
+
+#Creating linear model for Sweet flavor with interaction:
+flavor_lm_inter.s <- lm(rating ~ ABV * Sweet, beer_data)
+summary(flavor_lm_inter.s)
+
+#Checking to see which model is better
+anova(flavor_lm.s, flavor_lm_inter.s)
+```
+The anova test concludes that the additional complexity of including interaction effect of Sweet significantly improves the model. We will focus on this model while making interpretations.
+
+```{r fig.align='center', fig.width=10, fig.height=8, message=FALSE}
+#Creating a tibble
+intr.surf.data.s <- tibble(ABV = unlist(expand.grid(seq(0, 100, 1), seq(0, 200, 5))[1]),
+                         Sweet = unlist(expand.grid(seq(0, 100, 1), seq(0, 200, 5))[2]))
+
+#Adding some prediction points
+intr.surf.data.s <- mutate(intr.surf.data.s,
+                         main.hat = predict(flavor_lm.s, intr.surf.data.s),
+                         intr.hat = predict(flavor_lm_inter.s, intr.surf.data.s))
+
+#Visualizing the surfaces
+surf.main.s <- ggplot(intr.surf.data.s, aes(ABV, Sweet)) + 
+               geom_contour_filled(aes(z = main.hat)) + 
+               labs(subtitle = "Main Effects")  + 
+               guides(fill=guide_legend(title="Ratings"))
+
+surf.intr.s <- ggplot(intr.surf.data.s, aes(ABV, Sweet)) + 
+               geom_contour_filled(aes(z = intr.hat)) + 
+               labs(subtitle = "Interaction Effects") + 
+               guides(fill=guide_legend(title="Ratings"))
+
+grid.arrange(surf.main.s, surf.intr.s, nrow = 2)
+```
+
+
+```{r fig.align='center', message=FALSE}
+#Visualizing the predictions as constant ABV levels
+(effect.s <- filter(intr.surf.data.s, ABV %in% c(2, 3, 4, 12, 13, 17 , 18, 26, 27, 28)) %>%
+  mutate(ABV = factor(ABV)) %>%
+  ggplot() + 
+  geom_line(aes(Sweet, main.hat, colour = ABV), size = 1) +
+  geom_line(aes(Sweet, intr.hat, colour = ABV), linetype = "dashed", size = 1) +    #, show.legend = FALSE
+  ylim(3,6) +
+  ylab("Rating"))
+```
+
+**Malty Flavor**
+```{r fig.align='center', message=FALSE}
+#Creating linear model for Malty flavor:
+flavor_lm.m <- lm(rating ~ ABV + Malty, beer_data)
+summary(flavor_lm.m)
+
+#Creating linear model for with both flavors included
+flavor_lm.m.s <- lm(rating ~ ABV + Malty + Sweet, beer_data)
+vif(flavor_lm.s)
+vif(flavor_lm.m)
+vif(flavor_lm.m.s)
+
+##Creating linear model for Malty flavor with interaction:
+flavor_lm_inter.m <- lm(rating ~ ABV * Malty, beer_data)
+summary(flavor_lm_inter.m)
+
+```
+
+```{r fig.align='center', fig.width=10, fig.height=8, message=FALSE}
+#Creating a tibble
+intr.surf.data.m <- tibble(ABV = unlist(expand.grid(seq(0, 100, 1), seq(0, 200, 5))[1]),
+                         Malty = unlist(expand.grid(seq(0, 100, 1), seq(0, 200, 5))[2]))
+
+intr.surf.data.m <- mutate(intr.surf.data.m,
+                         main.hat = predict(flavor_lm.m, intr.surf.data.m),
+                         intr.hat = predict(flavor_lm_inter.m, intr.surf.data.m))
+
+#Visualizing the surfaces
+surf.main.m <- ggplot(intr.surf.data.m, aes(ABV, Malty)) + 
+               geom_contour_filled(aes(z = main.hat)) + 
+               labs(subtitle = "Main Effects")  + 
+               guides(fill=guide_legend(title="Ratings"))
+
+surf.intr.m <- ggplot(intr.surf.data.m, aes(ABV, Malty)) + 
+               geom_contour_filled(aes(z = intr.hat)) + 
+               labs(subtitle = "Interaction Effects") + 
+               guides(fill=guide_legend(title="Ratings"))
+
+grid.arrange(surf.main.m, surf.intr.m, nrow = 2)
+```
+
+```{r fig.align='center', message=FALSE}
+#Visualizing the predictions as constant ABV levels
+(effect.m <- filter(intr.surf.data.m, ABV %in% c(2, 3, 4, 12, 13, 17 , 18, 26, 27, 28)) %>%
+  mutate(ABV = factor(ABV)) %>%
+  ggplot() + 
+  geom_line(aes(Malty, main.hat, colour = ABV), size = 1) +
+  geom_line(aes(Malty, intr.hat, colour = ABV), linetype = "dashed", size = 1) + 
+  ylim(3,6) +
+  ylab("Rating"))
+```
+
+**Final Comparison**
+```{r fig.align='center', fig.width=10, message=FALSE, include=FALSE}
+#Comparing both Sweet and Malty flavors together
+grid.arrange(effect.s, effect.m, nrow = 1, 
+             top = textGrob("Effects of Sweet and Malty flavours at constant ABV levels",gp=gpar(fontsize=20,font=3)))
+```
+
+## **Part 2: Report**
+
+### Finding 1: Beers receive a higher rating if it has a higher ABV and receive a lower rating if it has a lower ABV
+
+In order to find whether, on average, a beer receives a higher rating if it has a higher or lower ABV, we looked into the possible correlation between Ratings and ABV. 
+
+The test showed evidence of significant data-based multicollinearity between these variables. Specifically, we found a significant ($p = 0$) correlation of **$0.4$** between Ratings and ABV. Thus, we used a linear regression to examine whether this relationship is significant in a linear model.
+
+```{r echo=FALSE, include=TRUE}
+summary(abv_lm)
+```
+
+The model shows that there are **0.07 extra rating points for every increase in ABV**. This increase is **significantly different from zero**, **t(5554)=32.28, p<.0001.**
+
+We checked how using this linear model would be effective in predicting ratings by comparing against the observed ratings, ie, the residuals. The line that minimizes the square of the residuals has been chosen.
+
+```{r echo=FALSE, include=TRUE, fig.align='center', message=FALSE, warning=FALSE}
+ggplot(beer_data, aes(x = ABV, y = rating, ymin = rating, ymax = rating.hat)) + 
+  geom_point() + 
+  geom_linerange() + 
+  geom_smooth(method = lm) + 
+  geom_point(aes(y = rating.hat), shape = "x", size = 3) +
+  labs(y = "Ratings")
+```
+
+Hence, due to the nature of the positive correlation between rating and ABV, **we can conclude by saying that, on average, a beer with higher ABV has higher rating and beer with lower ABV has lower rating.** The figure shows the ability of the model to predict beer ratings based on ABV for newer data.
+
+### Finding 2: Interactive effect of Sweet and Malty flavours
+
+In order to investigate, we created multiple linear regression models, where we looked into:
+
+1. Regression model with main effects of ABV and Sweet flavor.
+
+2. Regression model with main effects of ABV and Malty flavor.
+
+3. Regression model with interaction between ABV and Sweet flavor.
+
+4. Regression model with interaction between ABV and Malty flavor.
+
+From the main effects model, we have found that the **ratings increase** by a **statistically significant 0.06, t(5553)=25.18, p<.0001**, for every extra ABV value, holding the **Sweetness measure constant**. On the other hand, when **controlling for the ABV values**, the **ratings increased** by **0.002 for every extra unit of sweetness**, which is **significantly different from zero t(5553)=11.83, p<.0001**.
+
+Again, the ratings increase by a **statistically significant 0.07, t(5553)=30.44, p<0.0001**, for every extra ABV value, holding the **Maltiness measure constant**. On the other hand, when controlling for the ABV values, the **ratings increased by 0.001 for every extra unit of maltiness**, which is **significantly different from zero t(5553)=7.65, p<.0001.**
+
+However, our findings indicate that the **model including the interaction between the flavors and ABV are significantly better** and we will focus our interpretations on that. We used the models to enter multiple predictors to give us the best possible understanding of the effect of the two flavors (Sweet and Malty) with ABV held constant at various levels. The following figure shows us how the ratings will behave accordingly:
+
+```{r echo=FALSE, include=TRUE, message=FALSE, warning=FALSE, fig.align='center', fig.width=10, message=FALSE}
+grid.arrange(effect.s, effect.m, nrow = 1, 
+             top = textGrob("Effects of Sweet and Malty flavours at constant ABV levels",gp=gpar(fontsize=20,font=3)))
+```
+
+In the above figure, the **dashed lines show predictions based upon interaction between the interaction model**, and **the solid lines show predictions based upon the main effects models**. In the **main effects model**, the slopes of the flavors against Rating are always parallel for all different values of ABV. In the **interaction models**, the slopes of Sweet against Rating are steeper for low values of ABV and shallower for high values of ABV, while the slopes of Malty against Rating are shallower for low values of ABV and shallower for high values of ABV.
+
+From the analysis, we can conclude that:
+
+1. In order to maximize ratings, the **company should use more Malty flavor with beers having high ABV and use more Sweet flavor in beers with low        ABV.**
+
+2. As the interaction model including ABV and Malty shows that at each higher ABV levels there is greater positive correlation between ratings and      Malty, this flavor should be used if they are **creating a high ABV beer.**
+
+3. As the interaction model including ABV and Sweet shows that at each lower ABV levels there is greater positive correlation between ratings and       Sweet, this flavor should be used if they are **creating a low ABV beer.**
+
+---
+
+
+>**This is to certify that the work I am submitting is my own. All external references and sources are clearly acknowledged and identified within the contents. I am aware of the University of Warwick regulation concerning plagiarism and collusion.**
+
+
+>**No substantial part(s) of the work submitted here has also been submitted by me in other assessments for accredited courses of study, and I acknowledge that if this has been done an appropriate reduction in the mark I might otherwise have received will be made.**
