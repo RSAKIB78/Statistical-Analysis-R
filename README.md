@@ -1,6 +1,5 @@
-# Project Name
+# Statistical Analysis on Tutor Scheme initiative and Beer Data
 > Outline a brief description of your project.
-> Live demo [_here_](https://www.example.com). <!-- If you have the project hosted somewhere, include the link here. -->
 
 ## Table of Contents
 * [General Info](#general-information)
@@ -17,73 +16,43 @@
 
 
 ## General Information
-- Provide general information about your project here.
-- What problem does it (intend to) solve?
-- What is the purpose of your project?
-- Why did you undertake it?
-<!-- You don't have to answer all the questions - just the ones relevant to your project. -->
+### Part 1
+A high school implemented a buddying system where older students spent time tutoring some of the younger students. The students in the younger classes were selected at random. All students were tested at the beginning of the academic year and at the end. For all students, their attendance in regular classes was monitored and is given in the `absences` variable as a proportion of class time that was missed.
 
+The project examines the students’ scores and sees whether the tutoring scheme had an effect. It also checks whether the students allocated to the tutored and non-tutored groups had similar or different average test scores before the tutoring scheme began. The areas investigated include:
+- Did the tutored and non-tutored students have similar or different rates of absences on average?
+- Did the tutored students show an increase in their scores compared to the students who did not receive tutoring?
+- Was there any effect of absences on the change in scores, and did this have any interaction with the effect of tutoring?
+
+### Part 2
+This is a consulting project for a beer manufacturing company, which would like to know is whether certain types of beers tend to receive higher ratings than others.
+
+For the purpose, beers in the dataset are categorizes by the following general categories:
+- IPA 
+- Lager 
+- Porter 
+- Stout 
+- Wheat 
+- Pale 
+- Pilsner 
+- Bock
+
+Subsequently, the company has a new product that it is designing. It wants to know what properties will help it to get a high rating.
+The company would like to know whether, on average, a beer receives a higher rating if it has a higher or lower ABV. In addition to this (i.e. to be examined using separate/additional analysis) the company would like to know if having more or less Sweet or Malty elements in the flavour results in higher or lower ratings. This is examined in an analysis that includes the variables ABV, Sweet, and Malty.
+
+The company is given insights in regards to the following:
+- Do the results suggest that beers with higher or lower ABVs should have different flavours if the company is trying to maximise ratings
+- What flavourings should the company use more/less of if they are creating a high ABV beer
+- What flavourings should the company use more/less of if they are creating a low ABV beer
 
 ## Technologies Used
-- Tech 1 - version 1.0
-- Tech 2 - version 2.0
-- Tech 3 - version 3.0
-
+- RStudio
 
 ## Features
-List the ready features here:
-- Awesome feature 1
-- Awesome feature 2
-- Awesome feature 3
-
-
-## Screenshots
-![Example screenshot](./img/screenshot.png)
-<!-- If you have screenshots you'd like to share, include them here. -->
-
-
-## Setup
-What are the project requirements/dependencies? Where are they listed? A requirements.txt or a Pipfile.lock file perhaps? Where is it located?
-
-Proceed to describe how to install / setup one's local environment / get started with the project.
-
-
-## Usage
-How does one go about using it?
-Provide various use cases and code examples here.
-
-`write-your-code-here`
-
+- T-testing
+- Variable interaction
+- Significance Testing
+- Null Hypothesis Testing
 
 ## Project Status
-Project is: _in progress_ / _complete_ / _no longer being worked on_. If you are no longer working on it, provide reasons why.
-
-
-## Room for Improvement
-Include areas you believe need improvement / could be improved. Also add TODOs for future development.
-
-Room for improvement:
-- Improvement to be done 1
-- Improvement to be done 2
-
-To do:
-- Feature to be added 1
-- Feature to be added 2
-
-
-## Acknowledgements
-Give credit here.
-- This project was inspired by...
-- This project was based on [this tutorial](https://www.example.com).
-- Many thanks to...
-
-
-## Contact
-Created by [@flynerdpl](https://www.flynerd.pl/) - feel free to contact me!
-
-
-<!-- Optional -->
-<!-- ## License -->
-<!-- This project is open source and available under the [... License](). -->
-
-<!-- You don't have to include all sections - just the one's relevant to your project -->
+Project is: _complete_
