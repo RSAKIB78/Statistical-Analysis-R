@@ -53,6 +53,7 @@ The company is given insights in regards to the following:
 - Variable interaction
 - Significance Testing
 - Null Hypothesis Testing
+- Difference Testing
 
 ## Project Status
 Project is: _complete_
